@@ -15,6 +15,7 @@
 #
 # version history
 #    1.0   initial release
+#    1.1   added "user" processing mode
 
 use strict;
 use JSON;
@@ -30,19 +31,19 @@ use DateTime::Format::Strptime;
 use List::Util qw(min uniq);
  
 $Getopt::Std::STANDARD_HELP_VERSION = 1; 
-our $VERSION = '1.0'; 
+our $VERSION = '1.1'; 
  
 # command line options parsing
 my %opts = ();
-getopts('m:o:p:n:i:s:h?', \%opts) or pod2usage(-exitstatus => 2, -verbose => 1);
+getopts('m:o:p:n:i:s:u:h?', \%opts) or pod2usage(-exitstatus => 2, -verbose => 1);
 pod2usage(-exitstatus => 1, -verbose => 3) if ($opts{'?'} or $opts{h});
 
-my ($mode, $world, $file, $ip, $list, $process, $restrict, $start);
+my ($mode, $world, $file, $ip, $list, $process, $restrict, $start, $user);
 
 # get script mode, either look up for message index, download chat file or process stored chat file 
 pod2usage(-message => "no mode selected, select either 'download' or 'process'",
           -exitstatus => 1,
-          -verbose => 0) unless defined $opts{m} and $opts{m} =~ m/^(download|process|index)$/;
+		  -verbose => 0) unless defined $opts{m} and $opts{m} =~ m/^(download|process|index)$/;
 $mode = $opts{m};
 
 # basic variable assignment
@@ -53,11 +54,12 @@ $restrict = -1;
 $restrict = $opts{n} if $opts{n};
 $start = 1;
 $start = $opts{s} if $opts{s};
+$user = $opts{u} if $opts{u};
 
 # verify options, strongly depending on mode
 die "unknown format for world identifier: $world\n" if $mode =~ m/^(download|index)$/ and $world !~ m/^\w{2}\d{2,3}$/;
 die "no such file $file\n" if $mode eq 'process' and not -e $file;
-die "no parser mode set\n" if $mode eq 'process' and $process !~ m/^(addresses|ip|multi|stats|start)$/; 
+die "no parser mode set\n" if $mode eq 'process' and $process !~ m/^(addresses|ip|multi|stats|start|user)$/; 
 die "no ip given\n" if $mode eq 'process' and $process eq 'ip' and not $opts{i};
 die "not an ip address $opts{i}\n" if $opts{i} and $opts{i} !~ m/^(\d+\.\d+\.\d+\.\d+)$/;
 
@@ -239,6 +241,28 @@ elsif ($process eq 'multi')
 	    }
     }
 }
+elsif ($process eq 'user')
+{
+	die "no player given\n" unless $user;
+    die "no messages registered for user $user\n" unless $players{$user};
+	
+	my @ips = @{$players{$user}};
+	
+	print $user . " is using " . scalar @ips . " ips.\n";
+	
+    my $ua = new LWP::UserAgent();
+	
+	foreach my $i (@ips)
+	{
+		my @_players = @{$ips_players{$i}};
+		
+		my $count = grep {/\Q$user\E/}@_players;
+	
+		my $get = $ua->get('http://extreme-ip-lookup.com/json/' . $i)->content;
+		my $geo = decode_json $get;
+		printf "%18s (%4d): %-20s %-40s %-40s\n", $i, $count, $geo->{'city'}, $geo->{'isp'}, $geo->{'ipName'};
+	}
+}
 elsif ($process =~ m/^(stats|addresses)$/)
 {
 	# stats and addresses mode
@@ -288,6 +312,7 @@ stat_dio_chat - collects statistics from dio chat protocol for browser game Grep
    -n     restrict output
    -i     ip adddress
    -s     start index
+   -u     player name
    -h     this helpfile
 
   Examples:
@@ -307,6 +332,10 @@ stat_dio_chat - collects statistics from dio chat protocol for browser game Grep
     List all messages attached to a certain ip-address
 	
        stat_dio_chat.pl -m process -o de92.json -p ip -i <ip-address>
+	   
+    List all ip addresses assigned to e certain user
+    
+       stat_dio_chat.pl -m process -o de92.json -p user -u <user-name>
 		
     Finally list ten messages after given index
 	
@@ -384,17 +413,21 @@ Additionally lists amount of different ip-addresses a player is using as well as
 
 Show amount of messages after start index, additionally set by i<-s number>. Can be restricted by I<-n number>.
 
+=item C<user>
+
+Lists all ip-addresses subscribed to a user, additionally needs parameter I<-u player name>
+
 =back
 
-=item C<-i ip-address>
+=item B<-i ip-address>
 
 IP-Address to list messages for. Only to be used in processing mode C<ip>.
 
-=item C<-s number>
+=item B<-s number>
 
 Starting index when displaying n-th chat message in timelime. Only to be used in processing mode C<start>.
 
-=item C<-n number>
+=item B<-n number>
 
 Restrict output to ámount of C<n> entries. Can be used in conjunction with processing modes C<stats>, C<start> and C<multi>.
 
